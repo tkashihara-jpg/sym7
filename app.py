@@ -5,66 +5,54 @@ import pandas as pd
 import time
 
 def get_ses_list():
+    # 記事一覧のURL（1ページ目〜4ページ目程度を対象）
     base_url = "https://ses.cloudmeets.jp/category/ses-list/"
     all_data = []
     
-    st.info("データの取得を開始します。これには1〜2分かかる場合があります...")
+    st.info("サイトを解析中です。少々お待ちください...")
     
-    # 1. 各弾の記事一覧URLを取得（ページネーション対応）
+    # 1. 記事の個別URLを収集
     article_links = []
-    for page in range(1, 5):  # 第1弾〜38弾をカバーするために数ページ巡回
+    for page in range(1, 5):
         p_url = f"{base_url}page/{page}/" if page > 1 else base_url
-        res = requests.get(p_url)
-        soup = BeautifulSoup(res.text, "html.parser")
-        
-        # 記事のリンクを抽出
-        for a in soup.select("h2.entry-title a"):
-            link = a.get("href")
-            if "ses-list-" in link or "ses-list" in link:
-                article_links.append(link)
+        try:
+            res = requests.get(p_url, timeout=10)
+            res.raise_for_status()
+            soup = BeautifulSoup(res.text, "html.parser")
+            
+            # 記事タイトルに含まれるリンクを取得
+            links = soup.find_all("a")
+            for l in links:
+                href = l.get("href", "")
+                # 「第○弾」の記事URLの特徴を持つものを抽出
+                if "/ses-list-" in href and href.endswith("/"):
+                    article_links.append(href)
+        except Exception as e:
+            st.error(f"ページ {page} の取得に失敗しました: {e}")
 
-    # 重複排除
+    # 重複を削除
     article_links = list(set(article_links))
     
-    # 2. 各記事の中身から企業名とURLを抽出
+    if not article_links:
+        st.warning("記事のリンクが見つかりませんでした。")
+        return pd.DataFrame()
+
+    # 2. 各記事の中から「企業名」と「URL」を抽出
     progress_bar = st.progress(0)
     for i, link in enumerate(article_links):
-        res = requests.get(link)
-        soup = BeautifulSoup(res.text, "html.parser")
-        
-        # 記事内のテーブルやリスト構造からデータを取得
-        # ※CloudMeetsのリスト形式に合わせる（pタグ内のaタグなどを想定）
-        content = soup.select_one(".entry-content")
-        if content:
-            links_in_article = content.select("a")
-            for l in links_in_article:
-                url = l.get("href")
-                name = l.get_text(strip=True)
-                # 外部リンク（企業サイト）かつ「第○弾はこちら」以外のものを保存
-                if url and "http" in url and "cloudmeets.jp" not in url:
-                    all_data.append({"企業名": name, "URL": url})
-        
-        progress_bar.progress((i + 1) / len(article_links))
-        time.sleep(0.5) # サーバー負荷軽減のための待機
-
-    return pd.DataFrame(all_data).drop_duplicates()
-
-# --- Streamlit UI ---
-st.title("SES企業リスト一括取得ツール")
-st.write("CloudMeetsの第1弾〜第38弾から企業情報を抽出します。")
-
-if st.button("リストを作成する"):
-    df = get_ses_list()
-    st.success(f"{len(df)} 件の企業が見つかりました！")
-    
-    # テーブル表示
-    st.dataframe(df)
-    
-    # CSVダウンロードボタン
-    csv = df.to_csv(index=False).encode('utf_8_sig')
-    st.download_button(
-        label="CSVとしてダウンロード",
-        data=csv,
-        file_name="ses_enterprise_list.csv",
-        mime="text/csv",
-    )
+        try:
+            res = requests.get(link, timeout=10)
+            soup = BeautifulSoup(res.text, "html.parser")
+            
+            # 本文エリアを取得
+            content = soup.find("div", class_="entry-content")
+            if content:
+                # 本文内のすべてのリンクをチェック
+                for a in content.find_all("a"):
+                    url = a.get("href", "")
+                    name = a.get_text(strip=True)
+                    
+                    # 条件：httpで始まり、CloudMeets内部リンクではなく、名前が空でない
+                    if url.startswith("http") and "cloudmeets.jp" not in url and name:
+                        # 「第37弾はこちら」などのナビゲーション用リンクを除外
+                        if "
