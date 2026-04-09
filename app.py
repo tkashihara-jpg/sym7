@@ -56,7 +56,7 @@ def run_scraper(max_pages=10, progress_bar=None, status_text=None):
             
             # ページ下部まで少しずつスクロール（遅延読み込み対策）
             driver.execute_script("window.scrollTo(0, 1500);")
-            time.sleep(2)
+            time.sleep(5)
             
             # 企業名を取得するセレクタ
             # リクルートエージェントの企業名は class に 'companyName' を含む要素に格納されています
